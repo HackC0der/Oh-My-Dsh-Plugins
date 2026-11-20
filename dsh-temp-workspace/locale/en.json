@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Temporary workspaces",
+    "description": "Adds a temporary-session button beside New Session in the sidebar. Each click ensures the ~/.dsh/temp-workspace root exists, creates the next tmp-01, tmp-02… directory (or a timestamped one when the in-app folder picker is unavailable), registers it as a Workspace titled after that directory, and starts a Session there. The Session appears in its own small workspace group, and the ordinary New Session button continues in that same tmp-NN group afterwards. A click creates the Session immediately and opens it once grouped; an unsent draft stays in the previous blank Session. Temporary directories and Workspace registrations are never deleted automatically: delete the registration before the folder, and do not delete the registration while its Session is still blank, because the blank composer needs that workspace.",
+    "detail": "docs/DETAIL.md"
+  }
+}

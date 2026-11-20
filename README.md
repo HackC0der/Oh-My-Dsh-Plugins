@@ -9,6 +9,7 @@ DeepSeek Harness（DSH）插件的**打包副本**集合，用于版本管理与
 | 目录 | 包名 | 版本 | 说明 |
 |---|---|---|---|
 | [`workspace-folders/`](workspace-folders/) | `@local/workspace-folders` | 1.0.0 | 在左侧边栏把已有工作区收进虚拟文件夹（文件夹 → 工作区 → 会话），只在浏览器里记录分类，不改动磁盘目录。 |
+| [`dsh-temp-workspace/`](dsh-temp-workspace/) | `@local/dsh-temp-workspace` | 1.0.0 | 侧栏“新建会话”旁的临时会话按钮：每次在 `~/.dsh/temp-workspace` 下新建 `tmp-NN` 目录及其工作区并创建会话，不依赖项目目录。 |
 
 ## 仓库与运行时副本
 
@@ -16,6 +17,7 @@ DeepSeek Harness（DSH）插件的**打包副本**集合，用于版本管理与
 
 ```
 ~/.local/share/dsh-plugins/workspace-folders/      # 运行时副本（DSH 实际加载）
+~/.local/share/dsh-plugins/dsh-temp-workspace/     # 运行时副本（DSH 实际加载）
 ```
 
 本仓库保存同一份内容的打包副本，用于提交、分享与回溯。两者内容相同但不共享文件，更新时同步一次：
@@ -27,6 +29,8 @@ rsync -a --delete --exclude .git workspace-folders/ ~/.local/share/dsh-plugins/w
 # 运行时 -> 仓库（在插件目录里调试后回写）
 rsync -a --delete --exclude .git ~/.local/share/dsh-plugins/workspace-folders/ workspace-folders/
 ```
+
+以上同步命令以 `workspace-folders` 为例，`dsh-temp-workspace` 同理。
 
 ## 安装
 
