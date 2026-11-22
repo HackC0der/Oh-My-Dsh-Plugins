@@ -1,18 +1,20 @@
 /**
- * Host half of the temporary-workspace bundle.
+ * Host half of the workspace-suite bundle.
  *
- * The browser half creates a Session whose cwd is a `tmp-…` directory under
- * `~/.dsh/temp-workspace`. A Session with only a cwd has no owning Workspace,
- * and the blank-session hero treats "ready but unowned" as a deleted
- * Workspace: it disables the composer. The Workspace registry can only attach
- * a Session to a Workspace whose canonical path equals the Session's stored
- * cwd, and the create command accepts either `workspaceId` or `cwd`, never
- * both. So this half finishes the job once the Agent is published: it
- * registers that directory as a Workspace titled after it and attaches the
- * Session. `agent/created` runs serially before creation is released, so the
- * browser half normally finds the membership as soon as `sessions.create`
- * resolves. A failed creation never reaches this listener, so no dangling
- * Session is ever attached.
+ * The browser half's temporary-session trigger creates a Session whose cwd
+ * is a `tmp-…` directory under `~/.dsh/temp-workspace`. A Session with only
+ * a cwd has no owning Workspace, and the blank-session hero treats "ready
+ * but unowned" as a deleted Workspace: it disables the composer. The
+ * Workspace registry can only attach a Session to a Workspace whose
+ * canonical path equals the Session's stored cwd, and the create command
+ * accepts either `workspaceId` or `cwd`, never both. So this half finishes
+ * the job once the Agent is published: it registers that directory as a
+ * Workspace titled after it and attaches the Session. `agent/created` runs
+ * serially before creation is released, so the browser half normally finds
+ * the membership as soon as `sessions.create` resolves. A failed creation
+ * never reaches this listener, so no dangling Session is ever attached.
+ *
+ * The grouped sidebar itself is Client-only and needs no Host resources.
  */
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
@@ -48,7 +50,7 @@ export function apply(ctx) {
     } catch (error) {
       // Never fail Agent creation for grouping: the browser half opens the
       // Session anyway and tells the user its composer may stay unavailable.
-      ctx.logger.warn(`temp-workspace: could not group session "${session.id}" under "${cwd}"`, error)
+      ctx.logger.warn(`workspace-suite: could not group session "${session.id}" under "${cwd}"`, error)
     }
   })
 }

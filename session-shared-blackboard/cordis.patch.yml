@@ -1,0 +1,3 @@
+- insert:
+    - id: session-shared-blackboard
+      name: '@local/session-shared-blackboard'

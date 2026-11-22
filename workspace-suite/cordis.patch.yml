@@ -1,4 +1,4 @@
 # One Host row keeps the bundle active; its Client half is discovered from dsh.client.
 - insert:
-    - id: temp-workspace
-      name: '@local/dsh-temp-workspace'
+    - id: workspace-suite
+      name: '@local/workspace-suite'

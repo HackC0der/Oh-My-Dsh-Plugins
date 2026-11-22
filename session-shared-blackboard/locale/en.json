@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Shared blackboards",
+    "description": "Two collaboration surfaces for your sessions: agent group chat (chat rooms between you and several sessions or workspaces, Markdown bubbles, avatars, @-mentions that actively wake members) and blackboards (shared Markdown documents where everyone reads freely and edits serialize through a queue that always hands you the latest content). Sessions are named workspace-session.",
+    "detail": "docs/DETAIL.md"
+  }
+}
