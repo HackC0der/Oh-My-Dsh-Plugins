@@ -1,0 +1,34 @@
+{
+  "name": "@local/model-alias",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "模型别名：为同一个标准厂商保留常驻的添加入口，用别名（displayName）+ 独立 API Key 声明第二条路由，写入 llm-pi-ai.providers.<别名路由>，与内置厂商目录并存。",
+  "icon": "./icon.svg",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "docs",
+    "icon.svg"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Model aliases",
+    "description": "Keep the standard-vendor add entry always available: declare a second route per vendor with an alias and its own API key.",
+    "detail": "docs/DETAIL.md"
+  }
+}

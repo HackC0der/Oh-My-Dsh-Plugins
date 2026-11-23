@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "模型别名",
+    "description": "为同一个标准厂商保留常驻的添加入口：用别名 + 独立 API Key 声明第二条路由，多份配置互不覆盖。",
+    "detail": "docs/DETAIL.zh.md"
+  }
+}
