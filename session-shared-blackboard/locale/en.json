@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Shared blackboards",
-    "description": "Two collaboration surfaces for your sessions: agent group chat (chat rooms between you and several sessions or workspaces, Markdown bubbles, avatars, @-mentions that actively wake members) and blackboards (shared Markdown documents where everyone reads freely and edits serialize through a queue that always hands you the latest content). Sessions are named workspace-session.",
+    "description": "Two collaboration surfaces for your sessions: agent group chat (chat rooms between you and several sessions or workspaces, Markdown bubbles, avatars, @-mentions that actively wake members) and blackboards (shared Markdown documents where everyone reads freely and edits serialize through a queue that always hands you the latest content). Boards can be opened for a whole workspace: sessions created there register automatically, archived or closed sessions are recorded and cut off from communication, and every session knows its own positioning through an identity card and the blackboard_whoami tool. Sessions are named workspace-session.",
     "detail": "docs/DETAIL.md"
   }
 }

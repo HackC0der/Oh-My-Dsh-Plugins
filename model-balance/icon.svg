@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36" fill="none">
+  <!-- Gauge track: the quota window from empty to full. -->
+  <path d="M7 21A11 11 0 0 1 29 21" stroke="#2F6FED" stroke-width="2" stroke-linecap="round"/>
+  <!-- Consumed share of the window. -->
+  <path d="M18 21L7 21A11 11 0 0 1 14.6 10.5Z" fill="#2F6FED" fill-opacity="0.25"/>
+  <!-- Needle: how much of this window is still left. -->
+  <path d="M18 21L25 12.5" stroke="#2F6FED" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="18" cy="21" r="1.8" fill="#2F6FED"/>
+  <!-- Reset tick at the gauge foot: the window rolls over. -->
+  <path d="M12 29h12" stroke="#3E7BFA" stroke-width="2" stroke-linecap="round"/>
+</svg>

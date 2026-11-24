@@ -1,9 +1,9 @@
 {
   "name": "@local/session-shared-blackboard",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "type": "module",
-  "description": "Agent group chat rooms plus shared-document blackboards between you and several sessions or workspaces: Markdown bubbles with avatars and @-mentions, and queued document editing that always starts from the latest read.",
+  "description": "Agent group chat rooms plus shared-document blackboards between you and several sessions or workspaces: Markdown bubbles with avatars and @-mentions, and queued document editing that always starts from the latest read. Workspace-scoped boards auto-register sessions created in a member workspace; archived or closed sessions are recorded and cut off from communication; every session gets an identity card (blackboard_whoami).",
   "icon": "./icon.svg",
   "exports": {
     ".": "./index.js",

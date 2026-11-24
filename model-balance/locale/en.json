@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Model balances",
+    "description": "Subscription quotas and account balances for the model providers you pay, in one right-sidebar panel: GLM Coding Plan 5-hour and weekly windows with usage percentages, remaining quota and reset countdowns, the tool-call window with its per-tool breakdown, DeepSeek wallet balance, and OpenRouter credits. Keep several accounts per provider; agents read the same numbers through the balance_query tool. API keys stay on the Host and are never sent to the browser.",
+    "detail": "docs/DETAIL.md"
+  }
+}

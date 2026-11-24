@@ -82,6 +82,23 @@ window.__ModuleLoader__.load({
       'workspace.add': 'Add workspace',
       'workspace.defaultName': 'Workspace',
       'workspace.actions': 'Actions for workspace {name}',
+      'workspace.rename': 'Rename workspace',
+      'workspace.delete': 'Delete workspace',
+      'menu.deleteSession': 'Delete session',
+      'wsdialog.renameTitle': 'Rename workspace',
+      'wsdialog.deleteTitle': 'Delete workspace',
+      'wsdialog.deleteBody': 'Remove workspace "{name}" from the list? Its directory and files on disk are kept.',
+      'wsdialog.deleteFiles': 'Also delete the files on disk',
+      'wsdialog.deleteFilesHint': 'The directory is moved to ~/.dsh/trash/workspaces, where you can restore it.',
+      'wsdialog.deleteSessions': 'Also delete its sessions ({n}, including archived)',
+      'wsdialog.sessionTitle': 'Delete session',
+      'wsdialog.sessionBody': 'Permanently delete session "{name}" and its storage on disk? This cannot be undone.',
+      'wsdialog.nameLabel': 'Name',
+      'wsdialog.confirmDelete': 'Delete',
+      'wsdialog.confirmRename': 'Rename',
+      'wsdialog.cancel': 'Cancel',
+      'wsdialog.busy': 'Working…',
+      'wsdialog.error': 'Failed: {message}',
       'session.new': 'New session',
       'session.untitled': 'Untitled',
       'session.actions': 'Actions for session {name}',
@@ -146,6 +163,23 @@ window.__ModuleLoader__.load({
       'workspace.add': '添加工作区',
       'workspace.defaultName': '工作区',
       'workspace.actions': '工作区 {name} 的操作',
+      'workspace.rename': '重命名工作区',
+      'workspace.delete': '删除工作区',
+      'menu.deleteSession': '删除会话',
+      'wsdialog.renameTitle': '重命名工作区',
+      'wsdialog.deleteTitle': '删除工作区',
+      'wsdialog.deleteBody': '从列表移除工作区“{name}”吗？磁盘上的目录和文件会保留。',
+      'wsdialog.deleteFiles': '同时删除磁盘文件',
+      'wsdialog.deleteFilesHint': '目录将移入回收站 ~/.dsh/trash/workspaces，可随时找回。',
+      'wsdialog.deleteSessions': '同时删除其中的会话（{n} 条，含已归档）',
+      'wsdialog.sessionTitle': '删除会话',
+      'wsdialog.sessionBody': '永久删除会话“{name}”及其磁盘存储？此操作不可恢复。',
+      'wsdialog.nameLabel': '名称',
+      'wsdialog.confirmDelete': '删除',
+      'wsdialog.confirmRename': '重命名',
+      'wsdialog.cancel': '取消',
+      'wsdialog.busy': '处理中…',
+      'wsdialog.error': '操作失败：{message}',
       'session.new': '新会话',
       'session.untitled': '未命名',
       'session.actions': '会话 {name} 的操作',
@@ -2176,6 +2210,195 @@ window.__ModuleLoader__.load({
           }, '×')))
       }
 
+      const WSDIALOG_CSS = `
+      .dsh-wsd-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 90;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.4);
+      }
+      .dsh-wsd {
+        box-sizing: border-box;
+        width: min(400px, calc(100vw - 48px));
+        padding: 16px;
+        border: 0.5px solid var(--dsw-alias-border-l3);
+        border-radius: 12px;
+        background: var(--dsw-alias-bg-layer-2);
+        color: var(--dsw-alias-label-primary);
+        box-shadow: var(--dsw-elevation-prominent);
+      }
+      .dsh-wsd-title { margin: 0 0 8px; font-size: 14px; font-weight: 600; line-height: 20px; }
+      .dsh-wsd-body { margin: 0 0 12px; font-size: 13px; line-height: 20px; color: var(--dsw-alias-label-secondary); }
+      .dsh-wsd-input {
+        box-sizing: border-box;
+        width: 100%;
+        margin-bottom: 12px;
+        padding: 6px 10px;
+        border: 0.5px solid var(--dsw-alias-border-l3);
+        border-radius: 8px;
+        background: var(--dsw-alias-bg-layer-1);
+        color: var(--dsw-alias-label-primary);
+        font-size: 13px;
+        line-height: 20px;
+      }
+      .dsh-wsd-actions { display: flex; justify-content: flex-end; gap: 8px; }
+      .dsh-wsd-btn {
+        padding: 5px 14px;
+        border: 0.5px solid var(--dsw-alias-border-l3);
+        border-radius: 8px;
+        background: transparent;
+        color: var(--dsw-alias-label-primary);
+        font-size: 13px;
+        line-height: 20px;
+        cursor: pointer;
+      }
+      .dsh-wsd-btn[disabled] { opacity: 0.5; cursor: default; }
+      .dsh-wsd-btn-danger {
+        border-color: transparent;
+        background: var(--dsw-alias-bg-critical, #d64545);
+        color: #fff;
+      }
+      .dsh-wsd-error { margin: 0 0 12px; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-critical, #d64545); }
+      .dsh-wsd-check {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 0 4px;
+        font-size: 13px;
+        line-height: 20px;
+        color: var(--dsw-alias-label-primary);
+        cursor: pointer;
+      }
+      .dsh-wsd-check input { margin: 0; accent-color: var(--dsw-alias-bg-critical, #d64545); }
+      .dsh-wsd-hint {
+        margin: 0 0 12px 22px;
+        font-size: 12px;
+        line-height: 18px;
+        color: var(--dsw-alias-label-secondary);
+      }
+      `
+
+      /** Dialog heading per request mode. */
+      const dialogTitleKey = mode => (mode === 'rename'
+        ? 'wsdialog.renameTitle'
+        : mode === 'delete-session' ? 'wsdialog.sessionTitle' : 'wsdialog.deleteTitle')
+
+      /**
+       * Confirm dialog for the workspace rename and delete this replacement
+       * browser owns. The shipped browser renders its own dialogs, but it is
+       * shadowed by the folder browser, so without this component the native
+       * menu entries would resolve and then do nothing.
+       */
+      function WorkspaceActionDialog({ bus, t, renameWorkspace, deleteWorkspace, deleteWorkspaceWithFiles, countWorkspaceSessions, deleteSession }) {
+        const request = useSyncExternalStore(bus.subscribe, bus.get, bus.get)
+        const [draft, setDraft] = useState(request?.title ?? '')
+        const [withFiles, setWithFiles] = useState(false)
+        const [withDeleteSessions, setWithDeleteSessions] = useState(false)
+        const [sessionCount, setSessionCount] = useState(0)
+        const [busy, setBusy] = useState(false)
+        const [error, setError] = useState(null)
+        const inputRef = useRef(null)
+        useEffect(() => {
+          if (request === null) return
+          setDraft(request.title)
+          setWithFiles(false)
+          setWithDeleteSessions(false)
+          setSessionCount(request.mode === 'delete' ? countWorkspaceSessions(request.workspaceId) : 0)
+          setError(null)
+          setBusy(false)
+        }, [request])
+        useEffect(() => {
+          if (request?.mode === 'rename') inputRef.current?.focus()
+        }, [request])
+        if (request === null) return null
+        const close = () => { if (!busy) bus.set(null) }
+        const trimmed = draft.trim()
+        const renameBlocked = busy || trimmed === '' || trimmed === request.title
+        const confirm = () => {
+          if (busy) return
+          setBusy(true)
+          setError(null)
+          const run = request.mode === 'delete-session'
+            ? deleteSession(request.workspaceId)
+            : request.mode === 'delete'
+              ? (withFiles === true || withDeleteSessions === true
+                  ? deleteWorkspaceWithFiles(request.workspaceId, { deleteFiles: withFiles, deleteSessions: withDeleteSessions })
+                  : deleteWorkspace(request.workspaceId))
+              : renameWorkspace(request.workspaceId, trimmed)
+          Promise.resolve(run).then(() => { bus.set(null) }).catch(reason => {
+            setBusy(false)
+            setError(reason instanceof Error ? reason.message : String(reason))
+          })
+        }
+        return h(React.Fragment, null,
+          h('style', null, WSDIALOG_CSS),
+          h('div', {
+            className: 'dsh-wsd-backdrop',
+            onClick: close,
+            onKeyDown: (event) => {
+              if (event.key === 'Escape') close()
+            },
+          },
+          h('div', {
+            className: 'dsh-wsd',
+            role: 'dialog',
+            'aria-modal': 'true',
+            'aria-label': t(dialogTitleKey(request.mode)),
+            onClick: (event) => { event.stopPropagation() },
+          },
+          h('h2', { className: 'dsh-wsd-title' }, t(dialogTitleKey(request.mode))),
+          request.mode === 'delete-session'
+            ? h('p', { className: 'dsh-wsd-body' }, t('wsdialog.sessionBody', { name: request.title }))
+            : request.mode === 'delete'
+            ? h(React.Fragment, null,
+              h('p', { className: 'dsh-wsd-body' }, t('wsdialog.deleteBody', { name: request.title })),
+              h('label', { className: 'dsh-wsd-check' },
+                h('input', {
+                  type: 'checkbox',
+                  checked: withFiles,
+                  onChange: (event) => { setWithFiles(event.target.checked) },
+                }),
+                h('span', null, t('wsdialog.deleteFiles'))),
+              withFiles && h('p', { className: 'dsh-wsd-hint' }, t('wsdialog.deleteFilesHint')),
+              sessionCount > 0 && h('label', { className: 'dsh-wsd-check' },
+                h('input', {
+                  type: 'checkbox',
+                  checked: withDeleteSessions,
+                  onChange: (event) => { setWithDeleteSessions(event.target.checked) },
+                }),
+                h('span', null, t('wsdialog.deleteSessions', { n: sessionCount }))))
+            : h('label', null,
+              h('div', { className: 'dsh-wsd-body' }, t('wsdialog.nameLabel')),
+              h('input', {
+                ref: inputRef,
+                className: 'dsh-wsd-input',
+                value: draft,
+                onChange: (event) => { setDraft(event.target.value) },
+                onKeyDown: (event) => {
+                  if (event.key === 'Enter' && !renameBlocked) confirm()
+                },
+              })),
+          error !== null && h('p', { className: 'dsh-wsd-error' }, t('wsdialog.error', { message: error })),
+          h('div', { className: 'dsh-wsd-actions' },
+            h('button', {
+              type: 'button',
+              className: 'dsh-wsd-btn',
+              disabled: busy,
+              onClick: close,
+            }, t('wsdialog.cancel')),
+            h('button', {
+              type: 'button',
+              className: `dsh-wsd-btn${request.mode !== 'rename' ? ' dsh-wsd-btn-danger' : ''}`,
+              disabled: busy || (request.mode === 'rename' && renameBlocked),
+              onClick: confirm,
+            }, busy
+              ? t('wsdialog.busy')
+              : t(request.mode === 'rename' ? 'wsdialog.confirmRename' : 'wsdialog.confirmDelete'))))))
+      }
+
       // The temporary-session trigger beside the sidebar's New Session row.
       ctx.slots.inject('sidebar.session.action', () => ctx.slots.register({
         name: 'sidebar.session.action',
@@ -2185,6 +2408,8 @@ window.__ModuleLoader__.load({
       const folderStore = createFolderStore()
       const folderActions = createBus()
       const addWorkspaceBus = createBus(false)
+      /** Owns the rename/delete confirm dialog for this replacement browser. */
+      const workspaceDialogBus = createBus(null)
 
       const injectProps = () => ({
         startSession: (workspaceId, options) => { ctx.uiWorkspace.startSession(workspaceId, options) },
@@ -2327,6 +2552,66 @@ window.__ModuleLoader__.load({
         },
       }), 'workspace-suite: temp menu')
 
+      // Workspace rename and delete owned by this browser: the shipped menu
+      // entries only stage a request that the shipped browser's dialogs
+      // consume, and this folder browser shadows that browser, so the plugin
+      // provides the working pair (plus its confirm dialog, above). Gated the
+      // same way the shipped entries are.
+      const workspaceAccessAllowed = (workspaceId, action) => {
+        try {
+          const gate = ctx.remoteAccess?.source?.(`workspace`, workspaceId, action)
+          return gate === undefined || gate === null || gate.getSnapshot() !== false
+        } catch {
+          return true
+        }
+      }
+      ctx.effect(() => ctx.contextMenus.register({
+        id: 'workspace-suite.ws-rename',
+        target: 'workspace',
+        order: 98,
+        resolve: ({ workspaceId, displayTitle }) => workspaceAccessAllowed(workspaceId, 'workspace/rename')
+          ? [{
+            id: 'rename-workspace',
+            label: t('workspace.rename'),
+            icon: { key: 'workspace-suite.rename' },
+            run: () => { workspaceDialogBus.set({ mode: 'rename', workspaceId, title: displayTitle }) },
+          }]
+          : [],
+      }), 'workspace-suite: rename workspace menu')
+
+      ctx.effect(() => ctx.contextMenus.register({
+        id: 'workspace-suite.ws-delete',
+        target: 'workspace',
+        order: 298,
+        resolve: ({ workspaceId, displayTitle }) => workspaceAccessAllowed(workspaceId, 'workspace/delete')
+          ? [{
+            id: 'delete-workspace',
+            label: t('workspace.delete'),
+            icon: { key: 'workspace-suite.delete' },
+            danger: true,
+            separatorBefore: true,
+            run: () => { workspaceDialogBus.set({ mode: 'delete', workspaceId, title: displayTitle }) },
+          }]
+          : [],
+      }), 'workspace-suite: delete workspace menu')
+
+      // Session menu: permanently delete one persisted session and its
+      // storage artifact. The Host route refuses sessions that are open in
+      // the running process, and the dialog surfaces that error.
+      ctx.effect(() => ctx.contextMenus.register({
+        id: 'workspace-suite.session-delete',
+        target: 'session',
+        order: 300,
+        resolve: ({ sessionId, displayTitle }) => [sessionId !== '' ? {
+          id: 'delete-session',
+          label: t('menu.deleteSession'),
+          icon: { key: 'workspace-suite.delete' },
+          danger: true,
+          separatorBefore: true,
+          run: () => { workspaceDialogBus.set({ mode: 'delete-session', workspaceId: sessionId, title: displayTitle }) },
+        } : []],
+      }), 'workspace-suite: delete session menu')
+
       // Workspace menu: move into a group (nested groups carry their path),
       // or back to the root. Temporary workspaces are pinned and offer the
       // hide/restore pair above instead.
@@ -2389,6 +2674,51 @@ window.__ModuleLoader__.load({
           locale: NS,
           order: 80,
         }, TempWorkspaceToast)
+        yield ctx.slots.register({
+          name: 'shell.overlay',
+          id: 'workspace-suite.ws-dialog',
+          locale: NS,
+          order: 60,
+        }, function WorkspaceActionDialogSlot(props) {
+          return h(WorkspaceActionDialog, {
+            bus: workspaceDialogBus,
+            t: props.t,
+            renameWorkspace: (workspaceId, title) => ctx.workspaces.rename(workspaceId, title),
+            deleteWorkspace: workspaceId => ctx.workspaces.delete(workspaceId),
+            deleteWorkspaceWithFiles: async (workspaceId, { deleteFiles, deleteSessions }) => {
+              const response = await fetch('/plugins/workspace-suite/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ workspaceId, deleteFiles, deleteSessions }),
+              })
+              const payload = await response.json().catch(() => null)
+              if (!response.ok) {
+                throw new Error(payload !== null && typeof payload === 'object' && typeof payload.error === 'string'
+                  ? payload.error
+                  : `HTTP ${response.status}`)
+              }
+            },
+            deleteSession: async sessionId => {
+              const response = await fetch('/plugins/workspace-suite/delete-session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionId }),
+              })
+              const payload = await response.json().catch(() => null)
+              if (!response.ok) {
+                throw new Error(payload !== null && typeof payload === 'object' && typeof payload.error === 'string'
+                  ? payload.error
+                  : `HTTP ${response.status}`)
+              }
+            },
+            countWorkspaceSessions: workspaceId => {
+              const snapshot = ctx.workspaces.list.getSnapshot()
+              const workspace = snapshot.items.find(item => item.workspaceId === workspaceId)
+              if (workspace === undefined) return 0
+              return workspace.sessionIds.length
+            },
+          })
+        })
       })
 
       ctx.slots.inject('contextMenu.icon', function* () {
@@ -2403,7 +2733,7 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'sessions', 'uiWorkspace', 'workspaces', 'contextMenus', 'remote', 'locale'],
+      inject: ['slots', 'sessions', 'uiWorkspace', 'workspaces', 'contextMenus', 'remote', 'remoteAccess', 'locale'],
       apply,
     }
   },

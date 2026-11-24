@@ -15,12 +15,22 @@
  * are not reachable; a dependency-free store keeps this bundle loadable
  * everywhere.)
  *
- * Agents reach boards through three tools (blackboard_list / blackboard_read
- * / blackboard_post) registered for every agent; per-agent guidance is a
- * system-prompt section on `agent.ctx` that renders live membership and
- * unread counts at each assembly. Posting never wakes a peer agent: the
- * section is the lazy notification surface, so an agent notices new messages
- * at its next natural turn.
+ * Agents reach boards through four tools (blackboard_list / blackboard_read
+ * / blackboard_post / blackboard_whoami) registered for every agent; per-agent
+ * guidance is a system-prompt section on `agent.ctx` that renders live
+ * membership and unread counts at each assembly. Posting never wakes a peer
+ * agent: the section is the lazy notification surface, so an agent notices
+ * new messages at its next natural turn.
+ *
+ * Membership tracks the workspace lifecycle: a session created inside a
+ * member workspace joins every board of that workspace automatically, and a
+ * session that is archived (the registry-global archive set) or leaves the
+ * host (agent disposal) is recorded in a durable roster + activity log and
+ * cut off from communication — it can no longer read, post, edit, or be
+ * woken, and other members see it flagged as archived/left. Every session
+ * also gets an identity card (its own prompt section plus the
+ * `blackboard_whoami` tool) stating its session id, display name, owning
+ * workspace, lifecycle status, and its member label on each board.
  *
  * The Client half (the shared board panel) talks to this half over
  * same-origin plugin routes on the web server: JSON for reads and writes and
@@ -55,6 +65,18 @@ const ROUTE_PREFIX = '/plugins/session-blackboard'
 const USER_SIDE = 'user'
 /** Most members one board accepts. */
 const MAX_MEMBERS = 8
+/** Most lifecycle events kept in the durable activity log. */
+const MAX_ACTIVITY = 400
+/** Session lifecycle statuses shared by the roster, prompts, and wire shapes. */
+const SESSION_ACTIVE = 'active'
+const SESSION_ARCHIVED = 'archived'
+const SESSION_DEPARTED = 'departed'
+/** Lifecycle event types recorded in the activity log. */
+const ACTIVITY_JOINED = 'joined'
+const ACTIVITY_RETURNED = 'returned'
+const ACTIVITY_ARCHIVED = 'archived'
+const ACTIVITY_UNARCHIVED = 'unarchived'
+const ACTIVITY_LEFT = 'left'
 /** Longest one document edit lease runs before auto-release (agent crashed mid-edit). */
 const DOC_LEASE_MS = 5 * 60_000
 /** Default and maximum queue wait for `docboard_begin_edit`. */
@@ -193,6 +215,10 @@ class BoardStore {
     this.cursors = new Map()
     /** Shared documents (the literal blackboards): content + version. */
     this.docs = new Map()
+    /** Session lifecycle records, keyed by sessionId: last known status. */
+    this.roster = new Map()
+    /** Durable lifecycle event log, keyed by event id, ordered by seq. */
+    this.activity = new Map()
   }
 
   /** Load the file once; a malformed file is quarantined with a suffix. */
@@ -233,6 +259,10 @@ class BoardStore {
     adopt('cursors', this.cursors, record => typeof record.boardId === 'string' && typeof record.sessionId === 'string')
     adopt('docs', this.docs, record => typeof record.id === 'string' && Array.isArray(record.sides)
       && typeof record.content === 'string' && Number.isInteger(record.version))
+    adopt('roster', this.roster, record => typeof record.id === 'string' && typeof record.sessionId === 'string'
+      && typeof record.status === 'string')
+    adopt('activity', this.activity, record => typeof record.id === 'string'
+      && typeof record.sessionId === 'string' && typeof record.type === 'string' && Number.isInteger(record.seq))
   }
 
   /** Serialize every table to the file, atomically. */
@@ -244,6 +274,8 @@ class BoardStore {
       messages: [...this.messages.values()],
       cursors: [...this.cursors.values()],
       docs: [...this.docs.values()],
+      roster: [...this.roster.values()],
+      activity: [...this.activity.values()],
     })
     const temp = `${DATA_FILE}.tmp-${process.pid}`
     writeFileSync(temp, payload, 'utf8')
@@ -313,8 +345,63 @@ class Blackboards {
     return this.workspaceIndex.map.get(sessionId)
   }
 
+  /** Drop the cached session→workspace index (membership may have just changed). */
+  invalidateWorkspaceIndex() {
+    this.workspaceIndex = { at: 0, map: new Map() }
+  }
+
+  /** Whether one top-level session is live in this host right now. */
+  sessionLive(sessionId) {
+    const session = this.ctx.sessions.get(sessionId)
+    return session !== undefined && session.header.origin !== 'subagent'
+  }
+
+  /** Whether the host's registry-global archive set currently holds the session. */
+  sessionArchived(sessionId) {
+    try {
+      return this.ctx.workspaceRegistry.archivedSessionIds.includes(sessionId)
+    } catch {
+      return false
+    }
+  }
+
+  /** Derived lifecycle status: live + unarchived beats any stale roster row. */
+  sessionStatus(sessionId) {
+    if (!this.sessionLive(sessionId)) return SESSION_DEPARTED
+    if (this.sessionArchived(sessionId)) return SESSION_ARCHIVED
+    return SESSION_ACTIVE
+  }
+
+  /**
+   * Whether the session is allowed to communicate: live, unarchived, and
+   * top-level. Archived or departed members are cut off from reads, posts,
+   * edits, and mention wakes even when a board still names them.
+   */
+  communicable(sessionId) {
+    return this.sessionStatus(sessionId) === SESSION_ACTIVE
+  }
+
+  /**
+   * Whether any board or document names this session — by exact id, or via a
+   * workspace member covering it — ignoring its current lifecycle status
+   * (unlike boardsOf/docsOf, which exclude archived and departed sessions).
+   */
+  coversSession(sessionId) {
+    const workspaceId = this.workspaceOf(sessionId)
+    for (const board of this.boards()) {
+      if (board.sides.some(side => side.ref === sessionId
+        || (side.kind === 'workspace' && side.ref === workspaceId))) return true
+    }
+    for (const doc of this.docs()) {
+      if (doc.sides.some(side => side.ref === sessionId
+        || (side.kind === 'workspace' && side.ref === workspaceId))) return true
+    }
+    return false
+  }
+
   /** All boards whose sides cover the session (exact id or owning workspace). */
   boardsOf(sessionId) {
+    if (!this.communicable(sessionId)) return []
     const workspaceId = this.workspaceOf(sessionId)
     const result = []
     for (const board of this.boards()) {
@@ -406,6 +493,163 @@ class Blackboards {
   }
 
   /* ---------------------------------------------------------------- */
+  /* Session lifecycle (roster + activity log)                         */
+  /* ---------------------------------------------------------------- */
+
+  /** Lifecycle status annotation for one board/doc side on the wire. */
+  sideStatus(side) {
+    if (side.kind === 'workspace') {
+      return this.ctx.workspaceRegistry.get(side.ref) === undefined ? 'removed' : SESSION_ACTIVE
+    }
+    return this.sessionStatus(side.ref)
+  }
+
+  /** Next monotonic seq for the activity log. */
+  nextActivitySeq() {
+    let max = 0
+    for (const entry of this.store.activity.values()) {
+      if (entry.seq > max) max = entry.seq
+    }
+    return max + 1
+  }
+
+  /**
+   * Upsert one session's roster row and append one lifecycle event. The
+   * roster row stores the derived status (the live registries stay
+   * authoritative — this row is a durable record, never the enforcement
+   * source); the event records what happened and when.
+   * @param forcedStatus - optional status override (the unarchiving event
+   *   dispatches before the archive set write, so the derived read is stale).
+   */
+  trackSession(sessionId, type, forcedStatus) {
+    const now = new Date().toISOString()
+    const previous = this.store.roster.get(sessionId)
+    const workspaceId = this.workspaceOf(sessionId)
+    const workspaceTitle = workspaceId === undefined
+      ? null
+      : this.ctx.workspaceRegistry.get(workspaceId)?.title ?? null
+    const displayName = this.sessionDisplayName(sessionId)
+    const record = {
+      id: sessionId,
+      sessionId,
+      status: forcedStatus ?? this.sessionStatus(sessionId),
+      displayName,
+      workspaceId: workspaceId ?? null,
+      updatedAt: now,
+      joinedAt: previous?.joinedAt ?? now,
+    }
+    this.store.put('roster', this.store.roster, sessionId, record)
+    const event = {
+      id: rid('ev'),
+      seq: this.nextActivitySeq(),
+      at: now,
+      sessionId,
+      type,
+      displayName,
+      workspaceTitle,
+    }
+    this.store.put('activity', this.store.activity, event.id, event)
+    // The log is capped: drop the oldest entry once over budget.
+    if (this.store.activity.size > MAX_ACTIVITY) {
+      let oldest = null
+      for (const entry of this.store.activity.values()) {
+        if (oldest === null || entry.seq < oldest.seq) oldest = entry
+      }
+      if (oldest !== null) this.store.delete('activity', this.store.activity, oldest.id)
+    }
+  }
+
+  /**
+   * Record a session that appeared (`agent/created`): relevant sessions are
+   * those boards already know — exact members, roster alumni, or sessions of
+   * a workspace member. A session being created may race the workspace
+   * attach (serial listeners), so the cwd is resolved to a workspace
+   * directly when the cached index does not know it yet.
+   */
+  async trackSessionJoined(sessionId) {
+    const session = this.ctx.sessions.get(sessionId)
+    if (session === undefined || session.header.origin === 'subagent') return
+    const known = this.store.roster.has(sessionId)
+    this.invalidateWorkspaceIndex()
+    if (known || this.coversSession(sessionId)) {
+      this.trackSession(sessionId, known ? ACTIVITY_RETURNED : ACTIVITY_JOINED)
+      return
+    }
+    const cwd = session.header.cwd
+    if (typeof cwd !== 'string' || cwd === '') return
+    try {
+      const workspace = await this.ctx.workspaceRegistry.resolveByPath(cwd)
+      if (workspace === undefined) return
+      this.invalidateWorkspaceIndex()
+      if (this.coversSession(sessionId)) this.trackSession(sessionId, ACTIVITY_JOINED)
+    } catch {
+      // An unresolvable cwd covers no workspace member.
+    }
+  }
+
+  /** Record a session that left the host (`agent/disposed`). */
+  trackSessionLeft(sessionId) {
+    const session = this.ctx.sessions.get(sessionId)
+    if (session !== undefined && session.header.origin === 'subagent') return
+    if (!this.store.roster.has(sessionId) && !this.coversSession(sessionId)) return
+    this.trackSession(sessionId, ACTIVITY_LEFT)
+  }
+
+  /** Record a session entering the registry-global archive set. */
+  trackSessionArchived(sessionId) {
+    if (!this.store.roster.has(sessionId) && !this.coversSession(sessionId)) return
+    this.trackSession(sessionId, ACTIVITY_ARCHIVED)
+  }
+
+  /**
+   * Record a session leaving the archive set. Dispatched before the durable
+   * write (the only unarchive event), so the roster row is forced active;
+   * the derived status stays the real source of truth either way.
+   */
+  trackSessionUnarchived(sessionId) {
+    if (!this.store.roster.has(sessionId) && !this.coversSession(sessionId)) return
+    this.trackSession(sessionId, ACTIVITY_UNARCHIVED, SESSION_ACTIVE)
+  }
+
+  /** Client-facing lifecycle event record. */
+  activityWire(entry) {
+    return {
+      id: entry.id,
+      at: entry.at,
+      type: entry.type,
+      sessionId: entry.sessionId,
+      displayName: entry.displayName,
+      workspaceTitle: entry.workspaceTitle ?? null,
+    }
+  }
+
+  /** Recent lifecycle events involving one board's member scope, newest first. */
+  activityFor(board, limit = 6) {
+    const memberSessionIds = new Set()
+    const workspaceIds = new Set()
+    for (const side of board.sides) {
+      if (side.kind === 'session') memberSessionIds.add(side.ref)
+      else workspaceIds.add(side.ref)
+    }
+    // Roster rows remember the workspace a session belonged to when it was
+    // tracked, so departed members keep surfacing in the board's activity
+    // even after the workspace account drops them.
+    for (const record of this.store.roster.values()) {
+      if (record.workspaceId !== null && workspaceIds.has(record.workspaceId)) {
+        memberSessionIds.add(record.sessionId)
+      }
+    }
+    return [...this.store.activity.values()]
+      .filter(entry => memberSessionIds.has(entry.sessionId))
+      .sort((a, b) => b.seq - a.seq)
+      .slice(0, limit)
+      .map(entry => ({
+        ...this.activityWire(entry),
+        label: board.sides.find(side => side.ref === entry.sessionId)?.label ?? null,
+      }))
+  }
+
+  /* ---------------------------------------------------------------- */
   /* Document blackboards (shared documents with queued editing)       */
   /* ---------------------------------------------------------------- */
 
@@ -421,6 +665,7 @@ class Blackboards {
 
   /** All documents whose members cover the session. */
   docsOf(sessionId) {
+    if (!this.communicable(sessionId)) return []
     const workspaceId = this.workspaceOf(sessionId)
     const result = []
     for (const doc of this.docs()) {
@@ -616,7 +861,7 @@ class Blackboards {
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
       version: doc.version,
-      sides: doc.sides.map(side => ({ ...side, refTitle: this.refTitle(side) })),
+      sides: doc.sides.map(side => ({ ...side, refTitle: this.refTitle(side), status: this.sideStatus(side) })),
       mySideKey: mine?.key ?? null,
       edit: {
         holder: lock?.holder === undefined ? null
@@ -706,6 +951,12 @@ class Blackboards {
       if (board === undefined) throw new Error('board not found')
       let side
       if (authorKind === 'agent') {
+        if (this.sessionArchived(authorSessionId)) {
+          throw new Error('this session is archived: archived sessions cannot read or post to boards')
+        }
+        if (!this.sessionLive(authorSessionId)) {
+          throw new Error('this session is no longer live in this host and cannot post to boards')
+        }
         const membership = this.boardsOf(authorSessionId).find(entry => entry.board.id === boardId)
         if (membership === undefined) throw new Error('this session is not a member of the board')
         side = membership.side
@@ -750,6 +1001,8 @@ class Blackboards {
       const session = agent.session
       if (session.header.origin === 'subagent') continue
       if (message.authorKind === 'agent' && session.id === message.authorSessionId) continue
+      // boardsOf covers communicable members only, so archived or departed
+      // sessions are never woken even when a board still names them.
       const membership = this.boardsOf(session.id).find(entry => entry.board.id === board.id)
       if (membership === undefined || !targetKeys.has(membership.side.key)) continue
       try {
@@ -803,10 +1056,11 @@ class Blackboards {
       id: board.id,
       title: board.title,
       createdAt: board.createdAt,
-      sides: board.sides.map(side => ({ ...side, refTitle: this.refTitle(side) })),
+      sides: board.sides.map(side => ({ ...side, refTitle: this.refTitle(side), status: this.sideStatus(side) })),
       mySideKey: mine?.key ?? null,
       unread: mine === undefined ? null : this.unreadOf(board.id, sessionId),
       messageCount: messages.length,
+      activity: this.activityFor(board),
       lastMessage: last === null ? null : {
         seq: last.seq,
         sideKey: last.sideKey,
@@ -839,11 +1093,43 @@ class Blackboards {
   /* System prompt                                                     */
   /* ---------------------------------------------------------------- */
 
-  /** Guidance text for one session; empty string when it sits on no board. */
+  /**
+   * Identity card for one session: its id, display name, owning workspace,
+   * and lifecycle status, so every session can state its own positioning.
+   * @returns the identity lines; empty when the session is unknown.
+   */
+  identityLines(sessionId) {
+    const session = this.ctx.sessions.get(sessionId)
+    if (session === undefined) return []
+    const displayName = this.sessionDisplayName(sessionId)
+    const workspaceId = this.workspaceOf(sessionId)
+    const workspace = workspaceId === undefined ? undefined : this.ctx.workspaceRegistry.get(workspaceId)
+    const origin = session.header.origin === 'subagent' ? 'subagent' : 'top-level'
+    return [
+      `Your identity: session "${displayName}" (id: ${sessionId}, ${origin})`
+        + (workspace !== undefined
+          ? ` in workspace "${workspace.title}" (${workspace.path})`
+          : ' with no owning workspace')
+        + `; current status: ${this.sessionStatus(sessionId)}.`,
+      'Sessions created inside a member workspace join its boards automatically; '
+        + 'archived or closed members are cut off — they cannot read, post, edit, or be woken, '
+        + 'so treat any listed member not marked "active" as unavailable and do not wait for their replies. '
+        + 'Call blackboard_whoami to re-check your identity and memberships at any time.',
+    ]
+  }
+
+  /** Guidance text for one session; identity only when it sits on no board. */
   promptFor(sessionId) {
     const entries = this.boardsOf(sessionId)
     const docEntries = this.docsOf(sessionId)
-    if (entries.length === 0 && docEntries.length === 0) return ''
+    if (entries.length === 0 && docEntries.length === 0) {
+      const identity = this.identityLines(sessionId)
+      return identity.length === 0 ? '' : [
+        '## Shared blackboards (group chat + documents)',
+        '',
+        ...identity,
+      ].join('\n')
+    }
     const lines = []
     if (entries.length > 0) {
       lines.push('Group chats (agent group chat):')
@@ -851,14 +1137,18 @@ class Blackboards {
         const peers = board.sides.filter(candidate => candidate.key !== side.key)
           .map(candidate => `"${candidate.label}" (${candidate.kind}: ${this.refTitle(candidate)})`)
         const peerText = peers.length === 0 ? '' : ` Other members: ${peers.join(', ')}.`
+        const unavailable = board.sides
+          .filter(candidate => candidate.key !== side.key && this.sideStatus(candidate) !== SESSION_ACTIVE)
+          .map(candidate => `"${candidate.label}" (${this.sideStatus(candidate)})`)
+        const unavailableText = unavailable.length === 0 ? '' : ` Unavailable members (do not wait for them): ${unavailable.join(', ')}.`
         const unread = this.unreadOf(board.id, sessionId)
         const last = this.lastMessageOf(board.id)
         const news = unread > 0 && last !== null
           ? ` ${unread} unread; latest from ${last.sideKey === USER_SIDE ? 'the user' : board.sides.find(candidate => candidate.key === last.sideKey)?.label ?? 'a member'}: "${excerpt(last.text)}"`
           : ''
-        lines.push(`- Chat "${board.title}" — you are member "${side.label}" (${side.kind}: ${this.refTitle(side)}); the user also posts here.${peerText}${news}`)
+        lines.push(`- Chat "${board.title}" — you are member "${side.label}" (${side.kind}: ${this.refTitle(side)}); the user also posts here.${peerText}${unavailableText}${news}`)
       }
-      lines.push('Chat tools: blackboard_list / blackboard_read / blackboard_post. Posting does not wake other members — each sees your message at its next turn — EXCEPT mentions: @member-label actively pings that member (its agent is woken to check the board), or @all for everyone. Use mentions sparingly.')
+      lines.push('Chat tools: blackboard_list / blackboard_read / blackboard_post. Posting does not wake other members — each sees your message at its next turn — EXCEPT mentions: @member-label actively pings that member (its agent is woken to check the board), or @all for everyone. Use mentions sparingly; mentions never wake archived or closed members.')
     }
     if (docEntries.length > 0) {
       lines.push('Shared document blackboards (one shared Markdown document per board; everyone reads, edits are serialized through a queue):')
@@ -875,6 +1165,7 @@ class Blackboards {
       '## Shared blackboards (group chat + documents)',
       '',
       'Both are OPTIONAL channels: use them when exchanging information with the user or other members would help your work, and ignore them otherwise.',
+      ...this.identityLines(sessionId),
       ...lines,
     ].join('\n')
   }
@@ -1024,7 +1315,10 @@ class Blackboards {
             mySideKey: side.key,
             mySideLabel: side.label,
             otherSides: board.sides.filter(candidate => candidate.key !== side.key)
-              .map(candidate => `${candidate.label} (${candidate.kind}: ${this.refTitle(candidate)})`),
+              .map(candidate => {
+                const status = this.sideStatus(candidate)
+                return `${candidate.label} (${candidate.kind}: ${this.refTitle(candidate)})${status === SESSION_ACTIVE ? '' : ` [${status}]`}`
+              }),
             unread: this.unreadOf(board.id, caller.sessionId),
             messageCount: this.messagesOf(board.id).length,
             lastExcerpt: last === null
@@ -1035,6 +1329,106 @@ class Blackboards {
         return { boards }
       },
     }, { label: 'blackboard: list' })
+
+    const whoamiOutput = {
+      oneOf: [
+        {
+          type: 'object',
+          properties: {
+            sessionId: { type: 'string' },
+            displayName: { type: 'string' },
+            cwd: { type: 'string' },
+            status: { type: 'string', enum: ['active', 'archived', 'departed'] },
+            workspace: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                title: { type: 'string' },
+                path: { type: 'string' },
+              },
+              required: ['id', 'title', 'path'],
+            },
+            chats: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  boardId: { type: 'string' },
+                  title: { type: 'string' },
+                  mySideKey: { type: 'string' },
+                  mySideLabel: { type: 'string' },
+                  unread: { type: 'integer' },
+                },
+                required: ['boardId', 'title', 'mySideKey', 'mySideLabel', 'unread'],
+              },
+            },
+            docs: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  docId: { type: 'string' },
+                  title: { type: 'string' },
+                  mySideKey: { type: 'string' },
+                  mySideLabel: { type: 'string' },
+                  version: { type: 'integer' },
+                },
+                required: ['docId', 'title', 'mySideKey', 'mySideLabel', 'version'],
+              },
+            },
+            note: { type: 'string' },
+          },
+          required: ['sessionId', 'displayName', 'status', 'chats', 'docs'],
+        },
+        errorSchema,
+      ],
+    }
+
+    this.ctx.tools.register({
+      name: 'blackboard_whoami',
+      description: 'Report this session\'s own identity: session id, display name, owning workspace, lifecycle status '
+        + '(active / archived / departed), and every chat and shared-document membership with your member label in each. '
+        + 'Call it whenever you need to confirm who you are or where you stand in the collaboration surfaces.',
+      parameters: { type: 'object', properties: {} },
+      output: { schema: whoamiOutput, render: renderJson },
+      isConcurrencySafe: () => true,
+      execute: async (_args, exec) => {
+        const caller = this.callerOf(exec)
+        if (caller.error !== undefined) return { error: caller.error }
+        const sessionId = caller.sessionId
+        const session = this.ctx.sessions.get(sessionId)
+        if (session === undefined) {
+          return { error: { code: 'caller-unavailable', message: 'This session is no longer live in this host.' } }
+        }
+        const workspaceId = this.workspaceOf(sessionId)
+        const workspace = workspaceId === undefined ? undefined : this.ctx.workspaceRegistry.get(workspaceId)
+        return {
+          sessionId,
+          displayName: this.sessionDisplayName(sessionId),
+          cwd: typeof session.header.cwd === 'string' ? session.header.cwd : '',
+          status: this.sessionStatus(sessionId),
+          workspace: workspace === undefined ? null : {
+            id: workspace.id, title: workspace.title, path: workspace.path,
+          },
+          chats: this.boardsOf(sessionId).map(({ board, side }) => ({
+            boardId: board.id,
+            title: board.title,
+            mySideKey: side.key,
+            mySideLabel: side.label,
+            unread: this.unreadOf(board.id, sessionId),
+          })),
+          docs: this.docsOf(sessionId).map(({ doc, side }) => ({
+            docId: doc.id,
+            title: doc.title,
+            mySideKey: side.key,
+            mySideLabel: side.label,
+            version: doc.version,
+          })),
+          note: 'You post to chats under your member label; @member-label pings that member (never archived or closed ones), @all pings everyone available. '
+            + 'Sessions created inside a member workspace join its boards automatically.',
+        }
+      },
+    }, { label: 'blackboard: whoami' })
 
     this.ctx.tools.register({
       name: 'blackboard_read',
@@ -1175,6 +1569,12 @@ class Blackboards {
       const agent = exec.agent
       if (agent === undefined || agent.session?.id === undefined) {
         return { error: { code: 'caller-unavailable', message: 'Document tools need a calling session.' } }
+      }
+      if (this.sessionArchived(agent.session.id)) {
+        return { error: { code: 'session-archived', message: 'this session is archived: archived sessions cannot read or edit shared documents' } }
+      }
+      if (!this.sessionLive(agent.session.id)) {
+        return { error: { code: 'session-departed', message: 'this session is no longer live in this host' } }
       }
       const entry = this.docsOf(agent.session.id).find(candidate => candidate.doc.id === docId)
       if (entry === undefined) {
@@ -1364,11 +1764,21 @@ class Blackboards {
             title,
             displayName: this.sessionDisplayName(session.id),
             workspaceId: this.workspaceOf(session.id) ?? null,
+            status: this.sessionStatus(session.id),
           }
         })
       const workspaces = this.ctx.workspaceRegistry.list()
         .map(workspace => ({ id: workspace.id, title: workspace.title, path: workspace.path }))
       sendJson(res, 200, { sessions, workspaces })
+      return
+    }
+
+    if (req.method === 'GET' && path === '/roster') {
+      const limit = Number(query.get('limit') ?? '50')
+      const entries = [...this.store.activity.values()]
+        .sort((a, b) => b.seq - a.seq)
+        .slice(0, Number.isFinite(limit) && limit > 0 ? Math.min(limit, MAX_ACTIVITY) : 50)
+      sendJson(res, 200, { activity: entries.map(entry => this.activityWire(entry)) })
       return
     }
 
@@ -1563,6 +1973,23 @@ class Blackboards {
     this.registerTools()
     this.ctx.on('agent/created', ({ agent }) => this.trackAgent(agent))
     this.ctx.on('agent/disposed', ({ agent }) => this.forgetAgent(agent.session.id))
+    // Session lifecycle roster: creation/return, archive, unarchive, and
+    // departure are all recorded so boards can flag (and cut off) members
+    // that are gone. Serial listeners may await these handlers, so the
+    // creation path can resolve a workspace even before the attach lands.
+    this.ctx.on('agent/created', ({ agent }) => this.trackSessionJoined(agent.session.id))
+    this.ctx.on('agent/disposed', ({ agent }) => {
+      if (this.stopping) return
+      this.trackSessionLeft(agent.session.id)
+    })
+    this.ctx.on('workspace/session-archived', ({ sessionId }) => {
+      this.invalidateWorkspaceIndex()
+      this.trackSessionArchived(sessionId)
+    })
+    this.ctx.on('workspace/session-unarchiving', ({ sessionId }) => {
+      this.invalidateWorkspaceIndex()
+      this.trackSessionUnarchived(sessionId)
+    })
     // Agents that were already live when this plugin activated get the same
     // guidance section; without it they would never learn about their boards.
     for (const agent of this.ctx.agents.list()) this.trackAgent(agent)

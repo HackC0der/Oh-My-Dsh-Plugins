@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "模型余额",
+    "description": "在一个右侧栏面板里集中查看各模型服务商的套餐额度与账户余额：GLM Coding Plan 的 5 小时窗口与每周窗口（用量百分比、剩余额度、重置倒计时）、工具调用窗口及分工具用量、DeepSeek 钱包余额，以及 OpenRouter 余额。每个服务商可保存多个账号；智能体可通过 balance_query 工具读取同样的数据。API 密钥只保存在 Host 侧，绝不下发到浏览器。",
+    "detail": "docs/DETAIL.zh.md"
+  }
+}

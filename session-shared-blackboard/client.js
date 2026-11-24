@@ -70,6 +70,15 @@ window.__ModuleLoader__.load({
       'chat.placeholder': 'Message the room…',
       'chat.mentionHint': '@label mentions that member (actively pings them to check the room); @all pings everyone.',
       'chat.agentUnread': '{n} unread for this session',
+      'chat.activity': 'Member activity',
+      'activity.joined': 'joined',
+      'activity.returned': 'returned',
+      'activity.archived': 'was archived',
+      'activity.unarchived': 'was unarchived',
+      'activity.left': 'has left',
+      'status.archivedShort': 'archived',
+      'status.departedShort': 'left',
+      'status.removedShort': 'removed',
       'doc.back': 'Back',
       'doc.emptyBody': 'This blackboard is empty. Be the first to write.',
       'doc.edit': 'Edit',
@@ -112,7 +121,11 @@ window.__ModuleLoader__.load({
       'create.submit': 'Create',
       'create.busy': 'Creating…',
       'create.cancel': 'Cancel',
-      'create.hint': 'Members may mix single sessions and whole workspaces; every session in a workspace joins as that member. Sessions are named "workspace-session".',
+      'create.hint': 'Members may mix single sessions and whole workspaces; every session in a workspace joins as that member — including sessions created later. Sessions are named "workspace-session".',
+      'create.workspaceQuick': 'Start from a workspace',
+      'create.workspaceQuickBtn': 'Use this workspace',
+      'create.workspaceQuickHint': 'Creates the board with this whole workspace as its only member: every session in it joins automatically, and sessions created there later register themselves.',
+      'create.archivedMark': '(archived)',
       'time.now': 'now',
       'time.minute': '{n}m',
       'time.hour': '{n}h',
@@ -142,6 +155,15 @@ window.__ModuleLoader__.load({
       'chat.placeholder': '发言…',
       'chat.mentionHint': '输入 @标签 可提及该成员（主动提醒对方查看）；@all 提及全体。',
       'chat.agentUnread': '本会话有 {n} 条未读',
+      'chat.activity': '成员动态',
+      'activity.joined': '加入',
+      'activity.returned': '重新上线',
+      'activity.archived': '已被归档',
+      'activity.unarchived': '已取消归档',
+      'activity.left': '已离开',
+      'status.archivedShort': '已归档',
+      'status.departedShort': '已离开',
+      'status.removedShort': '已移除',
       'doc.back': '返回',
       'doc.emptyBody': '这块黑板还是空的。来写第一笔。',
       'doc.edit': '编辑',
@@ -184,7 +206,11 @@ window.__ModuleLoader__.load({
       'create.submit': '创建',
       'create.busy': '创建中…',
       'create.cancel': '取消',
-      'create.hint': '成员可混合单个会话与整个工作区；工作区中的所有会话都算该成员。会话以“工作区-会话”命名。',
+      'create.hint': '成员可混合单个会话与整个工作区；工作区中的所有会话都算该成员——之后新建的会话也会自动注册。会话以“工作区-会话”命名。',
+      'create.workspaceQuick': '从工作区发起',
+      'create.workspaceQuickBtn': '以此工作区开板',
+      'create.workspaceQuickHint': '以整个工作区为唯一成员开板：其中所有会话自动加入，之后在该工作区新建的会话也会自动注册进群聊/黑板。',
+      'create.archivedMark': '（已归档）',
       'time.now': '刚刚',
       'time.minute': '{n} 分钟',
       'time.hour': '{n} 小时',
@@ -340,6 +366,45 @@ window.__ModuleLoader__.load({
       }, initial)
     }
 
+    /** Human suffix for one member's non-active lifecycle status ('' when fine). */
+    const ACTIVITY_TYPES = ['joined', 'returned', 'archived', 'unarchived', 'left']
+    function sideGoneMark(side, t) {
+      if (side?.status === 'archived') return t('status.archivedShort')
+      if (side?.status === 'departed') return t('status.departedShort')
+      if (side?.status === 'removed') return t('status.removedShort')
+      return ''
+    }
+
+    /** One member chip: label plus an archival/left mark when it is gone. */
+    function MemberChip({ side, mine, t }) {
+      const mark = sideGoneMark(side, t)
+      return h('span', {
+        className: `sbb-chip ${mine ? 'sbb-mine' : ''}${mark === '' ? '' : ' sbb-gone'}`,
+        title: `${side.kind}: ${side.refTitle}${mark === '' ? '' : ` — ${mark}`}`,
+      }, mark === '' ? side.label : `${side.label} ${mark}`)
+    }
+
+    /** Recent member lifecycle events of one board, newest first. */
+    function ActivityList({ activity, t }) {
+      if (!Array.isArray(activity) || activity.length === 0) return null
+      return h('div', { className: 'sbb-activity' },
+        h('span', { className: 'sbb-roster-label' }, `${t('chat.activity')}:`),
+        h('div', { className: 'sbb-activity-rows' },
+          activity.map(entry => {
+            const time = relativeTime(entry.at, Date.now())
+            const timeText = typeof time === 'string' ? t('time.now') : t(time.key, { n: time.n })
+            const who = `${entry.displayName ?? entry.sessionId}${entry.label != null ? ` (${entry.label})` : ''}`
+            return h('div', { key: entry.id, className: 'sbb-activity-row' },
+              h('span', { className: 'sbb-activity-what' },
+                ACTIVITY_TYPES.includes(entry.type) ? t(`activity.${entry.type}`) : entry.type),
+              h('span', { className: 'sbb-activity-who' }, who),
+              h('span', { className: 'sbb-activity-when' }, timeText),
+            )
+          }),
+        ),
+      )
+    }
+
     /* ------------------------------------------------------------------ */
     /* Markdown (small, safe: React elements, never raw HTML)              */
     /* ------------------------------------------------------------------ */
@@ -485,6 +550,13 @@ window.__ModuleLoader__.load({
 .sbb-roster-label { font-size: 11px; color: var(--dsw-alias-label-tertiary); }
 .sbb-chip { padding: 0 7px; border-radius: 999px; border: 0.5px solid var(--dsw-alias-border-l2); font-size: 11px; line-height: 17px; color: var(--dsw-alias-label-secondary); }
 .sbb-chip.sbb-mine { border-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); }
+.sbb-chip.sbb-gone { opacity: 0.55; border-style: dashed; }
+.sbb-activity { display: flex; flex-direction: column; gap: 3px; padding: 4px 12px 0; }
+.sbb-activity-rows { display: flex; flex-direction: column; gap: 1px; }
+.sbb-activity-row { display: flex; align-items: baseline; gap: 6px; font-size: 11px; color: var(--dsw-alias-label-tertiary); }
+.sbb-activity-who { font-weight: 600; color: var(--dsw-alias-label-secondary); }
+.sbb-activity-when { margin-inline-start: auto; flex: none; }
+.sbb-quick-row { display: flex; align-items: center; gap: 6px; }
 .sbb-list { display: flex; flex-direction: column; gap: 4px; padding: 10px 10px 12px; }
 .sbb-card { display: flex; flex-direction: column; gap: 3px; padding: 9px 10px; border: 0.5px solid var(--dsw-alias-border-l1); border-radius: var(--dsw-radius-md); background: var(--dsw-alias-bg-layer-1); cursor: pointer; text-align: left; color: inherit; font: inherit; width: 100%; box-sizing: border-box; }
 .sbb-card:hover { background: var(--dsw-alias-interactive-bg-hover); }
@@ -608,11 +680,7 @@ window.__ModuleLoader__.load({
           }, deletingId === board.id ? t('list.deleteConfirm') : t('list.delete')),
         ),
         h('div', { className: 'sbb-card-sides' },
-          board.sides.map(side => h('span', {
-            key: side.key,
-            className: `sbb-chip ${side.key === board.mySideKey ? 'sbb-mine' : ''}`,
-            title: `${side.kind}: ${side.refTitle}`,
-          }, side.label)),
+          board.sides.map(side => h(MemberChip, { key: side.key, side, mine: side.key === board.mySideKey, t })),
           h('span', null, `· ${t('list.count', { n: board.messageCount })}`),
         ),
         board.lastMessage !== null
@@ -650,11 +718,7 @@ window.__ModuleLoader__.load({
           }, deletingId === doc.id ? t('list.deleteConfirm') : t('list.delete')),
         ),
         h('div', { className: 'sbb-card-sides' },
-          doc.sides.map(side => h('span', {
-            key: side.key,
-            className: `sbb-chip ${side.key === doc.mySideKey ? 'sbb-mine' : ''}`,
-            title: `${side.kind}: ${side.refTitle}`,
-          }, side.label)),
+          doc.sides.map(side => h(MemberChip, { key: side.key, side, mine: side.key === doc.mySideKey, t })),
         ),
         doc.excerpt !== '' ? h('div', { className: 'sbb-card-last' }, doc.excerpt) : null,
         )),
@@ -879,11 +943,7 @@ window.__ModuleLoader__.load({
                   h('div', { className: 'sbb-doc-meta' },
                     h(DocStateChip, { edit: current.edit, t }),
                     h('span', null, t('doc.updated', { time: updated, n: current.version })),
-                    current.sides.map(side => h('span', {
-                      key: side.key,
-                      className: `sbb-chip ${side.key === current.mySideKey ? 'sbb-mine' : ''}`,
-                      title: `${side.kind}: ${side.refTitle}`,
-                    }, side.label)),
+                    current.sides.map(side => h(MemberChip, { key: side.key, side, mine: side.key === current.mySideKey, t })),
                   ),
                   edit.phase === 'editing'
                     ? h('div', { className: 'sbb-doc-editor' },
@@ -951,6 +1011,8 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = useState(false)
       const [error, setError] = useState(null)
       const [tick, setTick] = useState(0)
+      /** Quick start: a whole workspace as the board's only member. */
+      const [quickWs, setQuickWs] = useState('')
 
       useEffect(() => {
         let cancelled = false
@@ -970,6 +1032,10 @@ window.__ModuleLoader__.load({
       }
       const removeMember = index => {
         setMembers(current => (current.length <= 1 ? current : current.filter((_, i) => i !== index)))
+      }
+      const useQuickWorkspace = () => {
+        if (quickWs === '') return
+        setMembers([{ kind: 'workspace', ws: quickWs, ref: quickWs, label: '' }])
       }
 
       const canSubmit = catalog !== null && !busy
@@ -1023,11 +1089,32 @@ window.__ModuleLoader__.load({
                 onChange: event => setTitle(event.target.value),
               }),
             ),
+            h('div', { className: 'sbb-field' },
+              h('label', { className: 'sbb-field-label' }, t('create.workspaceQuick')),
+              h('div', { className: 'sbb-quick-row' },
+                h('select', {
+                  className: 'sbb-select',
+                  value: quickWs,
+                  onChange: event => setQuickWs(event.target.value),
+                },
+                h('option', { value: '' }, t('create.pickWorkspace')),
+                (catalog === null ? [] : catalog.workspaces)
+                  .map(entry => h('option', { key: entry.id, value: entry.id },
+                    t('create.workspaceOption', { title: entry.title, path: entry.path })))),
+                h('button', {
+                  type: 'button',
+                  className: 'sbb-button',
+                  disabled: quickWs === '',
+                  onClick: useQuickWorkspace,
+                }, t('create.workspaceQuickBtn')),
+              ),
+              h('div', { className: 'sbb-modal-hint' }, t('create.workspaceQuickHint')),
+            ),
             members.map((member, index) => {
+              // Archived sessions cannot chat: keep them out of the pools.
               const sessionPool = member.kind === 'session' && catalog !== null && member.ws !== ''
-                ? catalog.sessions.filter(candidate => (member.ws === '__none__'
-                  ? candidate.workspaceId === null
-                  : candidate.workspaceId === member.ws))
+                ? catalog.sessions.filter(candidate => (candidate.status ?? 'active') === 'active'
+                  && (member.ws === '__none__' ? candidate.workspaceId === null : candidate.workspaceId === member.ws))
                 : []
               const nameCounts = new Map()
               for (const candidate of sessionPool) {
@@ -1261,14 +1348,11 @@ window.__ModuleLoader__.load({
                 : h(Fragment, null,
                   h('div', { className: 'sbb-roster' },
                     h('span', { className: 'sbb-roster-label' }, `${t('chat.members')}:`),
-                    current.sides.map(side => h('span', {
-                      key: side.key,
-                      className: `sbb-chip ${side.key === current.mySideKey ? 'sbb-mine' : ''}`,
-                      title: `${side.kind}: ${side.refTitle}`,
-                    }, side.label)),
+                    current.sides.map(side => h(MemberChip, { key: side.key, side, mine: side.key === current.mySideKey, t })),
                     h('span', { className: 'sbb-roster-label' }, '+'),
                     h('span', { className: 'sbb-chip sbb-mine' }, t('chat.you')),
                   ),
+                  h(ActivityList, { activity: current.activity, t }),
                   h('div', { className: 'sbb-chat' },
                     messages.length === 0
                       ? h('div', { className: 'sbb-empty' }, t('chat.empty'))

@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="300" viewBox="0 0 640 300" fill="none">
+  <!-- Right-sidebar excerpt: the panel head with refresh and add actions. -->
+  <rect x="40" y="30" width="240" height="242" rx="16" fill="#EEF3FA" stroke="#D8E2EF"/>
+  <rect x="56" y="46" width="96" height="7" rx="3.5" fill="#8FB8E8"/>
+  <circle cx="242" cy="49" r="7" fill="#FFFFFF" stroke="#2F6FED" stroke-width="1.6"/>
+  <path d="M242 45.5v7M238.5 49h7" stroke="#2F6FED" stroke-width="1.6" stroke-linecap="round"/>
+
+  <!-- GLM Coding Plan card: plan chip and the three quota windows. -->
+  <rect x="52" y="64" width="216" height="118" rx="10" fill="#FFFFFF" stroke="#D8E2EF"/>
+  <rect x="62" y="74" width="86" height="13" rx="6.5" fill="#DBEAFE"/>
+  <rect x="152" y="74" width="46" height="13" rx="6.5" fill="#EFF6FF" stroke="#93C5FD"/>
+  <rect x="204" y="78" width="54" height="5" rx="2.5" fill="#C9D6E6"/>
+  <!-- 5-hour window at 42%, warn-free -->
+  <rect x="62" y="96" width="64" height="5" rx="2.5" fill="#8FB8E8"/>
+  <rect x="196" y="96" width="62" height="5" rx="2.5" fill="#93C5FD"/>
+  <rect x="62" y="103" width="196" height="4" rx="2" fill="#DBEAFE"/>
+  <rect x="62" y="103" width="82" height="4" rx="2" fill="#2F6FED"/>
+  <!-- weekly window at 24% -->
+  <rect x="62" y="117" width="52" height="5" rx="2.5" fill="#8FB8E8"/>
+  <rect x="214" y="117" width="44" height="5" rx="2.5" fill="#93C5FD"/>
+  <rect x="62" y="124" width="196" height="4" rx="2" fill="#DBEAFE"/>
+  <rect x="62" y="124" width="47" height="4" rx="2" fill="#2F6FED"/>
+  <!-- tool calls at 78% with per-tool chips -->
+  <rect x="62" y="138" width="52" height="5" rx="2.5" fill="#8FB8E8"/>
+  <rect x="214" y="138" width="44" height="5" rx="2.5" fill="#93C5FD"/>
+  <rect x="62" y="145" width="196" height="4" rx="2" fill="#DBEAFE"/>
+  <rect x="62" y="145" width="153" height="4" rx="2" fill="#D97706"/>
+  <rect x="62" y="158" width="52" height="11" rx="5.5" fill="#EFF6FF" stroke="#93C5FD"/>
+  <rect x="118" y="158" width="66" height="11" rx="5.5" fill="#EFF6FF" stroke="#93C5FD"/>
+  <rect x="62" y="171" width="88" height="5" rx="2.5" fill="#C9D6E6"/>
+
+  <!-- DeepSeek card: wallet balance with granted/topped-up split. -->
+  <rect x="52" y="192" width="216" height="34" rx="10" fill="#FFFFFF" stroke="#D8E2EF"/>
+  <circle cx="72" cy="209" r="3" fill="#22C55E"/>
+  <rect x="82" y="202" width="52" height="9" rx="4.5" fill="#8FB8E8"/>
+  <rect x="140" y="200" width="60" height="13" rx="4" fill="#DBEAFE"/>
+  <rect x="82" y="216" width="104" height="5" rx="2.5" fill="#C9D6E6"/>
+
+  <!-- OpenRouter card: remaining credits with a used meter. -->
+  <rect x="52" y="236" width="216" height="26" rx="10" fill="#FFFFFF" stroke="#D8E2EF"/>
+  <rect x="82" y="245" width="52" height="9" rx="4.5" fill="#8FB8E8"/>
+  <rect x="196" y="245" width="62" height="9" rx="4.5" fill="#93C5FD"/>
+  <rect x="82" y="252" width="176" height="4" rx="2" fill="#DBEAFE"/>
+  <rect x="82" y="252" width="66" height="4" rx="2" fill="#2F6FED"/>
+
+  <!-- The agents read the same numbers through balance_query. -->
+  <path d="M296 205c36 0 44-52 88-52" stroke="#2F6FED" stroke-opacity="0.45" stroke-width="2" stroke-dasharray="4 6"/>
+  <rect x="384" y="118" width="216" height="70" rx="12" fill="#DBEAFE" stroke="#2F6FED" stroke-width="2.2" stroke-linejoin="round"/>
+  <rect x="400" y="134" width="132" height="8" rx="4" fill="#2F6FED"/>
+  <rect x="400" y="152" width="184" height="6" rx="3" fill="#93C5FD"/>
+  <rect x="400" y="166" width="150" height="6" rx="3" fill="#93C5FD"/>
+  <circle cx="584" cy="105" r="17" fill="#2F6FED" stroke="#FFFFFF" stroke-width="3"/>
+  <path d="M584 96.5v17M575.5 105h17" stroke="#FFFFFF" stroke-width="2.6" stroke-linecap="round"/>
+</svg>

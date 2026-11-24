@@ -9,7 +9,7 @@ DeepSeek Harness（DSH）插件的**打包副本**集合，用于版本管理与
 | 目录 | 包名 | 版本 | 说明 |
 |---|---|---|---|
 | [`workspace-suite/`](workspace-suite/) | `@local/workspace-suite` | 1.0.0 | 侧栏工作区套件：可嵌套的虚拟分组（分组 → 工作区 → 会话，已归档会话默认隐藏）＋“新建临时会话”按钮（每次在 `~/.dsh/temp-workspace` 下新建 `tmp-NN` 目录及其工作区并创建会话）；`tmp-*` 临时工作区统一收进置顶的“临时工作区”分组（隐藏即删除、可恢复）。由 `workspace-folders` 1.2.0 与 `dsh-temp-workspace` 1.1.0 合并而来。 |
-| [`session-shared-blackboard/`](session-shared-blackboard/) | `@local/session-shared-blackboard` | 2.0.0 | 两种协作面：智能体群聊（多成员聊天室，Markdown 气泡+头像+@提及主动唤醒）与黑板（共享 Markdown 文档，人人可读、编辑排队且轮到时必得最新内容）；会话以“工作区-会话”命名。 |
+| [`session-shared-blackboard/`](session-shared-blackboard/) | `@local/session-shared-blackboard` | 2.1.0 | 两种协作面：智能体群聊（多成员聊天室，Markdown 气泡+头像+@提及主动唤醒）与黑板（共享 Markdown 文档，人人可读、编辑排队且轮到时必得最新内容）；可按整个工作区开板，成员工作区中新建的会话自动注册进板；会话归档/离开被记录进成员名册与动态日志并被切断通信（不可读、不可发言、不被唤醒）；每个会话有身份卡片与 `blackboard_whoami` 工具明确自身定位。 |
 | [`model-balance/`](model-balance/) | `@local/model-balance` | 1.0.0 | 模型余额面板：右侧栏集中查询各服务商套餐额度与账户余额——GLM Coding Plan 的 5 小时窗口、每周窗口、工具调用窗口（百分比、剩余量、重置倒计时、分工具用量）、DeepSeek 钱包余额、OpenRouter 余额；面板内增删改账号，密钥只存 Host 侧（`~/.dsh/model-balance/accounts.json`，0600）；智能体可用 `balance_query` 工具读取同样数据。 |
 | [`model-alias/`](model-alias/) | `@local/model-alias` | 1.0.0 | 模型别名：为标准厂商保留常驻的添加入口（厂商列表不再因已配置而消失），用别名（`displayName`）+ 独立 API Key 在 `llm-pi-ai.providers.<路由>` 声明第二份配置；支持从厂商拉取模型列表、最小 path-op 编辑与幂等删除。 |
 
