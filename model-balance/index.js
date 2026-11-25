@@ -326,29 +326,35 @@ async function resolveRef(credentials, ref) {
   }
 }
 
+/** One discovered route: its key, the route id a session projection reports, and its base. */
+function routeEntry(provider, apiKey, routeId, baseUrl) {
+  return { provider, apiKey, routeId, baseUrl: baseUrl ?? '' }
+}
+
 /**
- * Discover the model-provider keys DSH already has, without manual entry.
- * Sources, in priority order per provider:
- * 1. the `llm-pi-ai` entry's composed config — the settings document section
- *    the web Models page and the model-alias plugin write (`providers.<route>`
- *    with `apiKeyEnv` + optional `baseURL`); its route ids are exactly what a
- *    session's model-selection projection reports, so dock gauges match;
+ * Discover the model-provider routes DSH already has, without manual entry.
+ * Every route becomes its OWN entry, so switching a session between two
+ * routes (for example the `zai` alias and the official `glm-coding-plan`)
+ * switches which account the composer dock matches. Sources:
+ * 1. the `llm-pi-ai` entry's composed config — the settings section the web
+ *    Models page and the model-alias plugin write (`providers.<route>` with
+ *    `apiKeyEnv` + optional `baseURL`); route ids are exactly what a session's
+ *    model-selection projection reports;
  * 2. `llm-pi-ai/<route>` api-key credential records;
- * 3. standard credential references and ambient environment variables.
- * @returns provider -> `{ apiKey, routes[], baseUrl }`
+ * 3. standard credential references and ambient environment variables, one
+ *    per provider that none of the above furnished.
+ * @returns array of `{ provider, apiKey, routeId, baseUrl }`
  */
 async function discoverConfiguredKeys(ctx) {
-  const found = new Map()
-  const touch = (provider, apiKey, routeId, baseUrl) => {
-    if (apiKey === '') return
-    const existing = found.get(provider)
-    if (existing === undefined) {
-      found.set(provider, { apiKey, routes: [routeId], baseUrl: baseUrl ?? '' })
-    } else {
-      // Keep the first key; accumulate every route id that maps here.
-      if (!existing.routes.includes(routeId)) existing.routes.push(routeId)
-    }
+  const found = []
+  const seenRoutes = new Set()
+  const push = (provider, apiKey, routeId, baseUrl) => {
+    if (apiKey === '' || seenRoutes.has(routeId)) return
+    seenRoutes.add(routeId)
+    found.push(routeEntry(provider, apiKey, routeId, baseUrl))
   }
+  const providersWithRoutes = () => new Set(found.map(entry => entry.provider))
+
   let credentials
   try {
     credentials = ctx?.get?.('credentials')
@@ -369,7 +375,6 @@ async function discoverConfiguredKeys(ctx) {
       const row = configEditor.configuration()
         .find(candidate => candidate?.entry?.options?.id === 'llm-pi-ai')
       if (row !== undefined) {
-        // An override replaces the complete config; merging is safe for reads.
         const merged = { ...row.inherited, ...row.override }
         const providers = merged?.providers
         if (providers !== null && typeof providers === 'object') {
@@ -377,13 +382,13 @@ async function discoverConfiguredKeys(ctx) {
             const target = balanceProviderForRoute(routeId)
             if (target === null || profile === null || typeof profile !== 'object') continue
             const ref = typeof profile.apiKeyEnv === 'string' ? profile.apiKeyEnv.trim() : ''
-            const apiKey = ref === '' ? '' : await resolveRef(credentials, ref)
-              || (typeof process.env[ref] === 'string' ? process.env[ref].trim() : '')
+            let apiKey = ref === '' ? '' : await resolveRef(credentials, ref)
+            if (apiKey === '' && ref !== '' && typeof process.env[ref] === 'string') apiKey = process.env[ref].trim()
             if (apiKey === '') continue
             const baseUrl = typeof profile.baseURL === 'string' && profile.baseURL.trim() !== ''
               ? profile.baseURL.trim()
               : (target.baseUrl ?? '')
-            touch(target.provider, apiKey, routeId, baseUrl)
+            push(target.provider, apiKey, routeId, baseUrl)
           }
         }
       }
@@ -413,60 +418,55 @@ async function discoverConfiguredKeys(ctx) {
         const apiKey = record !== undefined && record !== null && record.kind === 'api-key'
           && typeof record.key === 'string' ? record.key.trim() : ''
         if (apiKey === '') continue
-        const existing = found.get(target.provider)
-        if (existing === undefined) {
-          found.set(target.provider, { apiKey, routes: [routeId], baseUrl: target.baseUrl ?? '' })
-        } else if (!existing.routes.includes(routeId)) {
-          existing.routes.push(routeId)
-        }
+        push(target.provider, apiKey, routeId, target.baseUrl)
       } catch {
         // A grant record is not an API key; skip it.
       }
     }
   }
 
-  // 3. Standard credential references and ambient environment variables.
+  // 3. Standard credential references and ambient environment variables, one
+  //    per provider that no configured route provided.
+  const covered = providersWithRoutes()
   for (const [provider, refName] of ENV_KEY_FALLBACKS) {
-    if (found.has(provider)) continue
+    if (covered.has(provider)) continue
     let value = await resolveRef(credentials, refName)
     if (value === '') {
       const ambient = process.env[refName]
       if (typeof ambient === 'string') value = ambient.trim()
     }
-    if (value !== '') {
-      found.set(provider, {
-        apiKey: value,
-        routes: [refName],
-        baseUrl: provider === 'glm' ? 'https://api.z.ai' : '',
-      })
-    }
+    if (value !== '') push(provider, value, refName, provider === 'glm' ? 'https://api.z.ai' : '')
   }
   return found
 }
 
+/**
+ * Ephemeral auto accounts: one per discovered route, minus providers whose
+ * enabled manual account already answers for that route. The key rides
+ * `_key` for this process only.
+ */
 async function autoAccounts(ctx, store) {
-  const handled = new Set(
-    [...store.accounts.values()].filter(account => account.enabled).map(account => account.provider),
-  )
+  const manual = [...store.accounts.values()].filter(account => account.enabled)
   const discovered = await discoverConfiguredKeys(ctx)
   const list = []
-  for (const [provider, found] of discovered) {
-    if (handled.has(provider)) continue
-    const catalog = PROVIDERS[provider]
-    // matchRoutes carries the real route ids, so the composer-dock gauges
-    // match the session's model-selection projection.
-    const routes = found.routes.join(' ')
+  for (const entry of discovered) {
+    const manualCovers = manual.some(account => account.provider === entry.provider
+      && (String(account.matchRoutes ?? '').split(/[\s,，;；]+/).filter(Boolean).includes(entry.routeId)
+        || String(account.matchRoutes ?? '').trim() === ''))
+    if (manualCovers) continue
+    const catalog = PROVIDERS[entry.provider]
+    const safeRoute = entry.routeId.replace(/[^A-Za-z0-9._-]/g, '-')
     list.push({
-      id: `auto:${provider}`,
-      provider,
-      label: `${catalog.label} (${found.routes[0]})`,
-      baseUrl: found.baseUrl,
+      id: `auto:${entry.provider}:${safeRoute}`,
+      provider: entry.provider,
+      label: `${catalog.label} (${entry.routeId})`,
+      baseUrl: entry.baseUrl,
       apiKey: '',
       apiKeyEnv: '',
-      matchRoutes: routes,
+      matchRoutes: entry.routeId,
       enabled: true,
       auto: true,
-      _key: found.apiKey,
+      _key: entry.apiKey,
       createdAt: '',
     })
   }
