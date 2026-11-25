@@ -57,6 +57,8 @@ Results are cached 30 seconds (errors 15 seconds), so panel polling and agent ca
 ## Where data lives
 
 Accounts (provider, display name, optional base-URL override, API key) sit in
+Accounts need no manual key entry: the plugin reads the model keys DSH already has — `llm-pi-ai/<route>` credential records and the standard credential references (DEEPSEEK_API_KEY, GLM_CODING_PLAN_API_KEY, ZAI_*, OPENROUTER_API_KEY) — maps them to GLM / DeepSeek / OpenRouter and queries directly. Auto accounts carry an "auto" chip and are read-only; an enabled manual account for the same provider wins.
+
 `~/.dsh/model-balance/accounts.json`, written atomically with 0600 permissions. Removing the plugin leaves
 that file in place; deleting an account in the panel deletes its stored key with it.
 

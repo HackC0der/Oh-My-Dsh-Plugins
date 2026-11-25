@@ -118,6 +118,8 @@ window.__ModuleLoader__.load({
       'time.day': '{n} d ago',
       'key.tail': 'key {tail}',
       'key.env': 'env {name}',
+      'key.dsh': 'key from DSH models',
+      'auto.chip': 'auto',
       'dock.5h.aria': '5-hour window: {percent}% used, resets in {time}',
       'dock.week.aria': 'Weekly window: {percent}% used, resets in {time}',
       'dock.5h.label': '5-hour window quota used',
@@ -186,6 +188,8 @@ window.__ModuleLoader__.load({
       'time.day': '{n} 天前',
       'key.tail': '密钥 {tail}',
       'key.env': '环境变量 {name}',
+      'key.dsh': '密钥来自 DSH 模型配置',
+      'auto.chip': '自动',
       'dock.5h.aria': '5 小时窗口已用 {percent}%，{time}后重置',
       'dock.week.aria': '每周窗口已用 {percent}%，{time}后重置',
       'dock.5h.label': '5小时窗口额度使用',
@@ -320,6 +324,7 @@ window.__ModuleLoader__.load({
 .mb-card-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .mb-chip { flex: none; padding: 1px 7px; border-radius: 999px; border: 0.5px solid var(--dsw-alias-border-l2); font-size: 11px; line-height: 17px; color: var(--dsw-alias-label-secondary); }
 .mb-chip.mb-brand { border-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); }
+.mb-chip.mb-auto { border-color: var(--dsw-alias-state-success-primary); color: var(--dsw-alias-state-success-primary); }
 .mb-chip.mb-state-warn { border-color: var(--dsw-alias-state-warn-primary); color: var(--dsw-alias-state-warn-primary); }
 .mb-chip.mb-state-error { border-color: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-state-error-primary); }
 .mb-card-sub { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px; color: var(--dsw-alias-label-tertiary); }
@@ -747,16 +752,17 @@ window.__ModuleLoader__.load({
       return h('div', { className: `mb-card${entry.enabled === false || state === 'disabled' ? ' mb-dim' : ''}` },
         h('div', { className: 'mb-card-head' },
           h('span', { className: 'mb-chip mb-brand' }, entry.providerLabel ?? entry.provider),
+          entry.auto === true ? h('span', { className: 'mb-chip mb-auto' }, t('auto.chip')) : null,
           isGlm && data?.plan ? h('span', { className: 'mb-chip' }, `${t('plan.label')} ${data.plan}`) : null,
           h('span', { className: 'mb-card-title', title: entry.label }, entry.label),
           h('button', {
             type: 'button', className: 'mb-icon-btn', disabled: busyId === entry.id,
             title: t('action.refresh'), onClick: () => onRefreshOne(entry.id),
           }, busyId === entry.id ? '…' : '⟳'),
-          h('button', {
+          entry.auto === true ? null : h('button', {
             type: 'button', className: 'mb-icon-btn', title: t('action.edit'), onClick: () => onEdit(entry),
           }, '✎'),
-          h('button', {
+          entry.auto === true ? null : h('button', {
             type: 'button',
             className: `mb-icon-btn${deletingId === entry.id ? ' mb-danger' : ''}`,
             title: t('action.delete'), onClick: () => onDelete(entry.id),
@@ -765,9 +771,11 @@ window.__ModuleLoader__.load({
         h('div', { className: 'mb-card-sub' },
           entry.state === 'ok' && entry.keyTail
             ? t('key.tail', { tail: entry.keyTail })
-            : (entry.keySource === 'env' && entry.apiKeyEnv
-              ? t('key.env', { name: entry.apiKeyEnv })
-              : (entry.hasStoredKey ? t('key.tail', { tail: '…' }) : null)),
+            : (entry.keySource === 'dsh'
+              ? t('key.dsh')
+              : (entry.keySource === 'env' && entry.apiKeyEnv
+                ? t('key.env', { name: entry.apiKeyEnv })
+                : (entry.hasStoredKey ? t('key.tail', { tail: '…' }) : null))),
           entry.baseUrl && entry.baseUrl !== entry.defaultBase ? entry.baseUrl : null,
         ),
         state === 'ok' && data !== null

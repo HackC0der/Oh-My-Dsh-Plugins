@@ -246,6 +246,9 @@ async function fetchProviderJson(account, urlPath, resolveKeyFn) {
  * live as references), falling back to the Host process environment.
  */
 async function resolveAccountKey(ctx, account) {
+  // Auto-discovered accounts carry the key resolved from the DSH Models
+  // configuration for this query only; it is never stored.
+  if (account.auto === true && typeof account._key === 'string' && account._key !== '') return account._key
   if (typeof account.apiKey === 'string' && account.apiKey !== '') return account.apiKey
   const envName = typeof account.apiKeyEnv === 'string' ? account.apiKeyEnv : ''
   if (envName === '') return ''
@@ -277,6 +280,139 @@ function normalizeEnvName(value) {
   const name = value.trim()
   if (name === '') return ''
   return ENV_NAME_RE.test(name) ? name : null
+}
+
+/* ------------------------------------------------------------------ */
+/* Automatic discovery of the DSH Models configuration                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Map one llm route id (the id half of an `llm-pi-ai/<route>` credential
+ * record, or an environment variable name) to a balance provider.
+ * @returns `{ provider, baseUrl? }`, or null when no console applies.
+ */
+function balanceProviderForRoute(routeId) {
+  const id = String(routeId).toLowerCase()
+  if (id.includes('deepseek')) return { provider: 'deepseek' }
+  if (id.includes('openrouter')) return { provider: 'openrouter' }
+  if (id.includes('glm') || id.includes('zai') || id.includes('bigmodel')) {
+    const mainland = id.includes('cn') || id.includes('bigmodel') || id.includes('mainland')
+    return { provider: 'glm', baseUrl: mainland ? 'https://open.bigmodel.cn' : 'https://api.z.ai' }
+  }
+  return null
+}
+
+/** Environment fallbacks, tried in order, when no Models record carries a key. */
+const ENV_KEY_FALLBACKS = [
+  ['deepseek', 'DEEPSEEK_API_KEY'],
+  ['openrouter', 'OPENROUTER_API_KEY'],
+  ['glm', 'GLM_CODING_PLAN_API_KEY'],
+  ['glm', 'ZAI_CODING_CN_API_KEY'],
+  ['glm', 'ZAI_CODING_GLOBAL_API_KEY'],
+  ['glm', 'ZAI_API_KEY'],
+  ['glm', 'BIGMODEL_API_KEY'],
+]
+
+/**
+ * Discover the model-provider keys already configured for DSH: the Models
+ * page writes `llm-pi-ai/<route>` credential records, so the balance panel
+ * can query the same accounts without a second manual key entry. Explicit
+ * environment variables cover hosts whose keys never entered the record
+ * store.
+ * @returns provider -> `{ apiKey, routeId, baseUrl }`
+ */
+async function discoverConfiguredKeys(ctx) {
+  const found = new Map()
+  let credentials
+  try {
+    credentials = ctx?.get?.('credentials')
+  } catch {
+    credentials = undefined
+  }
+  if (credentials !== undefined && credentials !== null
+    && typeof credentials.listRecords === 'function' && typeof credentials.readRecord === 'function') {
+    let entries = []
+    try {
+      entries = await credentials.listRecords()
+    } catch {
+      entries = []
+    }
+    for (const entry of entries) {
+      const key = typeof entry?.key === 'string' ? entry.key : ''
+      const match = /^llm-pi-ai\/(.+)$/.exec(key)
+      if (match === null) continue
+      const routeId = match[1]
+      const target = balanceProviderForRoute(routeId)
+      if (target === null || found.has(target.provider)) continue
+      try {
+        const record = await credentials.readRecord(key)
+        const apiKey = record !== undefined && record !== null && record.kind === 'api-key'
+          && typeof record.key === 'string' ? record.key.trim() : ''
+        if (apiKey !== '') {
+          found.set(target.provider, { apiKey, routeId, baseUrl: target.baseUrl ?? '' })
+        }
+      } catch {
+        // A grant record is not an API key; skip it.
+      }
+    }
+  }
+  for (const [provider, envName] of ENV_KEY_FALLBACKS) {
+    if (found.has(provider)) continue
+    // The Models page may store a key as a credential reference rather than a
+    // record (the built-in DeepSeek adapter and pi-ai routes do exactly that),
+    // so resolve the reference through the credential store first.
+    let value = ''
+    if (credentials !== undefined && credentials !== null && typeof credentials.resolve === 'function') {
+      try {
+        const hit = await credentials.resolve(envName)
+        if (hit !== undefined && hit !== null && typeof hit.value === 'string') value = hit.value.trim()
+      } catch {
+        value = ''
+      }
+    }
+    if (value === '') {
+      const ambient = process.env[envName]
+      if (typeof ambient === 'string') value = ambient.trim()
+    }
+    if (value !== '') {
+      found.set(provider, {
+        apiKey: value,
+        routeId: envName,
+        baseUrl: provider === 'glm' ? 'https://api.z.ai' : '',
+      })
+    }
+  }
+  return found
+}
+
+/**
+ * Ephemeral auto accounts: one per discovered provider that has no enabled
+ * manual account. The key rides `_key` for this process only.
+ */
+async function autoAccounts(ctx, store) {
+  const handled = new Set(
+    [...store.accounts.values()].filter(account => account.enabled).map(account => account.provider),
+  )
+  const discovered = await discoverConfiguredKeys(ctx)
+  const list = []
+  for (const [provider, found] of discovered) {
+    if (handled.has(provider)) continue
+    const catalog = PROVIDERS[provider]
+    list.push({
+      id: `auto:${provider}`,
+      provider,
+      label: `${catalog.label} (${found.routeId})`,
+      baseUrl: found.baseUrl,
+      apiKey: '',
+      apiKeyEnv: '',
+      matchRoutes: found.routeId,
+      enabled: true,
+      auto: true,
+      _key: found.apiKey,
+      createdAt: '',
+    })
+  }
+  return list
 }
 
 /** Normalize the matched-route list: split on separators, collapse whitespace, keep order. */
@@ -511,16 +647,18 @@ class ModelBalance {
       label: account.label,
       baseUrl: normalizeBase(account.baseUrl, account.provider),
       hasStoredKey: stored !== '',
-      keySource: stored !== '' ? 'stored' : (account.apiKeyEnv ? 'env' : ''),
+      keySource: account.auto === true ? 'dsh' : (stored !== '' ? 'stored' : (account.apiKeyEnv ? 'env' : '')),
+      auto: account.auto === true,
       apiKeyEnv: account.apiKeyEnv ?? '',
       matchRoutes: account.matchRoutes ?? '',
       enabled: account.enabled,
     }
   }
 
-  /** Snapshot array of redacted account records. */
-  accounts() {
-    return [...this.store.accounts.values()].map(account => this.accountWire(account))
+  /** Snapshot array of redacted account records, including auto-discovered ones. */
+  async accounts() {
+    const autos = await autoAccounts(this.ctx, this.store)
+    return [...this.store.accounts.values(), ...autos].map(account => this.accountWire(account))
   }
 
   /** Validate and create one account from one request body. */
@@ -628,8 +766,11 @@ class ModelBalance {
 
   /** Status payload for every account (panel shape: all, tool shape: enabled only). */
   async statusAll({ force, includeDisabled }) {
-    const accounts = [...this.store.accounts.values()]
-      .filter(account => includeDisabled || account.enabled)
+    const autos = await autoAccounts(this.ctx, this.store)
+    const accounts = [
+      ...[...this.store.accounts.values()].filter(account => includeDisabled || account.enabled),
+      ...autos,
+    ]
     const settled = await Promise.all(accounts.map(account => this.snapshot(account, force)))
     return {
       checkedAt: new Date().toISOString(),
@@ -753,7 +894,7 @@ class ModelBalance {
     }
 
     if (req.method === 'GET' && path === '/accounts') {
-      sendJson(res, 200, { accounts: this.accounts() })
+      sendJson(res, 200, { accounts: await this.accounts() })
       return
     }
 

@@ -1,6 +1,6 @@
 {
   "name": "@local/model-balance",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "Model balance and subscription-quota panel: GLM Coding Plan 5-hour and weekly windows with usage percentages and reset countdowns, DeepSeek wallet balance, and OpenRouter credits; agents read the same numbers through the balance_query tool.",
