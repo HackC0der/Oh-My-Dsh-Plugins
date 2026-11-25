@@ -340,6 +340,7 @@ window.__ModuleLoader__.load({
 .mb-meter-fill.mb-warn { background: var(--dsw-alias-state-warn-primary); }
 .mb-meter-fill.mb-bad { background: var(--dsw-alias-state-error-primary); }
 .mb-row-foot { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--dsw-alias-label-tertiary); }
+.mb-row-foot .mb-row-remaining { margin-inline-start: auto; }
 .mb-reset { flex: 1; min-width: 0; }
 .mb-chip-row { display: flex; flex-wrap: wrap; gap: 4px; }
 .mb-chip.mb-mini { padding: 0 6px; font-size: 10px; line-height: 15px; }
@@ -400,6 +401,7 @@ window.__ModuleLoader__.load({
 .mbd-meter { height: 5px; border-radius: 999px; background: var(--dsw-alias-bg-layer-2); overflow: hidden; }
 .mbd-meter-fill { height: 100%; border-radius: 999px; }
 .mbd-row-foot { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
+.mbd-row-foot .mbd-row-amounts { margin-inline-start: auto; }
 .mbd-error { font-size: 12px; color: var(--dsw-alias-state-error-primary); }
 `
 
@@ -425,22 +427,23 @@ window.__ModuleLoader__.load({
     /** One quota-window row: label, meter, used/limit, reset countdown. */
     function WindowRow({ window: win, t, now }) {
       const pct = win.percentage ?? 0
-      const value = win.limit !== null && win.limit !== undefined
-        ? `${fmtNumber(win.used)} / ${fmtNumber(win.limit)}`
-        : `${Math.round(pct)}%`
+      const hasAmounts = win.limit !== null && win.limit !== undefined
       const label = t(WINDOW_LABEL_KEY[win.id] ?? 'window.other')
       const details = Array.isArray(win.details) ? win.details : []
       return h('div', { className: 'mb-row' },
         h('div', { className: 'mb-row-top' },
           h('span', { className: 'mb-row-label' }, label),
-          win.remaining !== null && win.remaining !== undefined
-            ? h('span', { className: 'mb-row-remaining' }, t('remaining.label', { n: fmtNumber(win.remaining) }))
-            : null,
-          h('span', { className: 'mb-row-value' }, value),
+          h('span', { className: 'mb-row-value' }, `${Math.round(pct)}%`),
         ),
         h(Meter, { percentage: pct }),
         h('div', { className: 'mb-row-foot' },
           h('span', { className: 'mb-reset', title: absTime(win.resetAt) }, resetPhrase(win.resetAt, now, t)),
+          hasAmounts
+            ? h('span', { className: 'mb-row-remaining' },
+              win.remaining !== null && win.remaining !== undefined
+                ? `${fmtNumber(win.used)} / ${fmtNumber(win.limit)} · ${t('remaining.label', { n: fmtNumber(win.remaining) })}`
+                : `${fmtNumber(win.used)} / ${fmtNumber(win.limit)}`)
+            : null,
         ),
         details.length > 0 ? h(ToolBreakdown, { details }) : null,
       )
@@ -552,21 +555,24 @@ window.__ModuleLoader__.load({
     function DockWindowRow({ window: win, t, now }) {
       const pct = win.percentage ?? 0
       const label = t(WINDOW_LABEL_KEY[win.id] ?? 'window.other')
-      const value = win.limit !== null && win.limit !== undefined
-        ? `${fmtNumber(win.used)} / ${fmtNumber(win.limit)}`
-        : `${Math.round(pct)}%`
+      const hasAmounts = win.limit !== null && win.limit !== undefined
       return h('div', { className: 'mbd-row' },
         h('div', { className: 'mbd-row-top' },
           h('span', { className: 'mbd-row-label' }, label),
-          win.remaining !== null && win.remaining !== undefined
-            ? h('span', { className: 'mbd-row-foot' }, t('remaining.label', { n: fmtNumber(win.remaining) }))
-            : null,
-          h('span', { className: 'mbd-row-value' }, value),
+          h('span', { className: 'mbd-row-value' }, `${Math.round(pct)}%`),
         ),
         h('div', { className: 'mbd-meter' },
           h('div', { className: `mbd-meter-fill ${meterClass(pct)}`, style: { width: `${clampPct(pct)}%` } }),
         ),
-        h('div', { className: 'mbd-row-foot' }, resetPhrase(win.resetAt, now, t)),
+        h('div', { className: 'mbd-row-foot' },
+          resetPhrase(win.resetAt, now, t),
+          hasAmounts
+            ? h('span', { className: 'mbd-row-amounts' },
+              win.remaining !== null && win.remaining !== undefined
+                ? `${fmtNumber(win.used)} / ${fmtNumber(win.limit)} · ${t('remaining.label', { n: fmtNumber(win.remaining) })}`
+                : `${fmtNumber(win.used)} / ${fmtNumber(win.limit)}`)
+            : null,
+        ),
       )
     }
 
